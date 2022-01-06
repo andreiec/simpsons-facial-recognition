@@ -5,6 +5,7 @@ __pycache__/
 .idea/
 files/
 finalized_model.sav
+finalized_model_backup.sav
 positiveExamples/
 negativeExamples/
 descriptori/
