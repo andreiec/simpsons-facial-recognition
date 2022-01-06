@@ -5,6 +5,8 @@ __pycache__/
 .idea/
 files/
 finalized_model.sav
+positiveExamples/
+negativeExamples/
 # C extensions
 *.so
 
