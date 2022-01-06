@@ -18,7 +18,6 @@ SAVE_MODEL = False
 LOAD_MODEL = True
 TRAIN_MODEL = False
 LOAD_IMAGES = False
-SCORE_MODEL = False
 DISPLAY_SLIDING_WINDOW = False
 
 # Paths
@@ -32,22 +31,21 @@ GROUND_TRUTH_PATH = "./files/validare/task1_gt.txt"
 
 # Sliding window parameters
 sliding_window_size = (36, 36)
-sliding_window_step_size = 1
+sliding_window_step_size = 2
 
-sliding_window_predict_size = (36, 64)
-sliding_window_predict_step_size = 1
+sliding_window_predict_size = (36, 36)
+sliding_window_predict_step_size = 2
 
 # Data gathering parameters
 image_resize_factor = 1
-random_window_max_tries = 5
-
-# Training data arrays
-images_with_faces_train_data = []
-images_without_faces_train_data = []
 
 # Save images paths and their labels
 images = []
 labels = {}
+
+# Yellow filter
+low_yellow = (20, 105, 105)
+high_yellow = (35, 255, 255)
 
 
 # Function to yield the complete pyramid of an image
@@ -178,8 +176,39 @@ def eval_detections(detections, scores, file_names, ground_truth_path):
     plt.show()
 
 
+def non_maximal_suppression(image_detections, image_scores, image_size):
+    # xmin, ymin, xmax, ymax
+    x_out_of_bounds = np.where(image_detections[:, 2] > image_size[1])[0]
+    y_out_of_bounds = np.where(image_detections[:, 3] > image_size[0])[0]
+    print(x_out_of_bounds, y_out_of_bounds)
+    image_detections[x_out_of_bounds, 2] = image_size[1]
+    image_detections[y_out_of_bounds, 3] = image_size[0]
+    sorted_indices = np.flipud(np.argsort(image_scores))
+    sorted_image_detections = image_detections[sorted_indices]
+    sorted_scores = image_scores[sorted_indices]
+
+    is_maximal = np.ones(len(image_detections)).astype(bool)
+    iou_threshold = 0.3
+    for i in range(len(sorted_image_detections) - 1):
+        if is_maximal[i] == True:  # don't change to 'is True' because is a numpy True and is not a python True :)
+            for j in range(i + 1, len(sorted_image_detections)):
+                if is_maximal[j] == True:  # don't change to 'is True' because is a numpy True and is not a python True :)
+                    if intersection_over_union(sorted_image_detections[i],sorted_image_detections[j]) > iou_threshold:
+                        is_maximal[j] = False
+                    else:  # verificam daca centrul detectiei este in mijlocul detectiei cu scor mai mare
+                        c_x = (sorted_image_detections[j][0] + sorted_image_detections[j][2]) / 2
+                        c_y = (sorted_image_detections[j][1] + sorted_image_detections[j][3]) / 2
+                        if sorted_image_detections[i][0] <= c_x <= sorted_image_detections[i][2] and \
+                                sorted_image_detections[i][1] <= c_y <= sorted_image_detections[i][3]:
+                            is_maximal[j] = False
+    return sorted_image_detections[is_maximal], sorted_scores[is_maximal]
+
+
 # Main function
 def main():
+    # Training data arrays
+    images_with_faces_train_data = []
+    images_without_faces_train_data = []
 
     # Read images from folders
     for folder in TRAIN_IMAGES_PATH:
@@ -209,43 +238,48 @@ def main():
         print("Loading images..")
 
         # Load positive examples files
-        for file in os.listdir(POSITIVE_EXAMPLES_PATH):
-            image = cv.imread(POSITIVE_EXAMPLES_PATH + file)
-            image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-            _, face_hog_image = hog(image, pixels_per_cell=(6, 6), cell_block=(2, 2), visualize=True)
-            images_with_faces_train_data.append(face_hog_image.flatten())
+        positive_descriptors_path = "./descriptori/positive/positive.npy"
+        if os.path.exists(positive_descriptors_path):
+            images_with_faces_train_data = np.load(positive_descriptors_path)
+        else:
+            for file in os.listdir(POSITIVE_EXAMPLES_PATH):
+                image = cv.imread(POSITIVE_EXAMPLES_PATH + file, cv.IMREAD_GRAYSCALE)
+                face_hog_image = hog(image, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
+                images_with_faces_train_data.append(face_hog_image)
+
+            images_with_faces_train_data = np.array(images_with_faces_train_data)
+            np.save(positive_descriptors_path, images_with_faces_train_data)
 
         # Load negative examples files
-        for file in os.listdir(NEGATIVE_EXAMPLES_PATH):
-            image = cv.imread(NEGATIVE_EXAMPLES_PATH + file)
-            image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-            _, non_face_hog_image = hog(image, pixels_per_cell=(6, 6), cell_block=(2, 2), visualize=True)
-            images_without_faces_train_data.append(non_face_hog_image.flatten())
+        negative_descriptors_path = "./descriptori/negative/negative.npy"
+        if os.path.exists(negative_descriptors_path):
+            images_without_faces_train_data = np.load(negative_descriptors_path)
+        else:
+            for file in os.listdir(NEGATIVE_EXAMPLES_PATH):
+                image = cv.imread(NEGATIVE_EXAMPLES_PATH + file, cv.IMREAD_GRAYSCALE)
+                non_face_hog_image = hog(image, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
+                images_without_faces_train_data.append(non_face_hog_image)
+
+            images_without_faces_train_data = np.array(images_without_faces_train_data)
+            np.save(negative_descriptors_path, images_without_faces_train_data)
 
         print("Images loaded!")
 
-    # Build classifier labels
-    train_y_faces = [1] * len(images_with_faces_train_data)
-    train_y_non_faces = [0] * len(images_without_faces_train_data)
-    # print(f"Faces: {len(train_y_faces)}, Non faces: {len(train_y_non_faces)}")
-    train_y_faces.extend(train_y_non_faces)
-    train_y = train_y_faces
+        # Build classifier labels
+        print(f"Faces: {len(images_with_faces_train_data)}, Non faces: {len(images_without_faces_train_data)}")
+        train_y = np.concatenate((np.ones(images_with_faces_train_data.shape[0]), np.zeros(images_without_faces_train_data.shape[0])))
 
-    # Combine training data
-    images_with_faces_train_data.extend(images_without_faces_train_data)
-    train_x = np.array(images_with_faces_train_data)
+        # Combine training data
+        train_x = np.concatenate((np.squeeze(images_with_faces_train_data), np.squeeze(images_without_faces_train_data)), axis=0)
 
     # Define classifier
-    classifier = svm.SVC()
-
-    if LOAD_IMAGES:
-        X_train, X_test, y_train, y_test = train_test_split(train_x, train_y, test_size=0.3, random_state=42)
+    classifier = svm.LinearSVC(C=1)
 
     if TRAIN_MODEL:
         print("Training SVM..")
 
         # Train test split
-        classifier.fit(X_train, y_train)
+        classifier.fit(train_x, train_y)
 
         print("SVM Trained!")
 
@@ -263,142 +297,9 @@ def main():
         classifier = pickle.load(open(filename, 'rb'))
         print("SVM Loaded!")
 
-    # 92% for bart only dataset, 96% for all datasets
-    if SCORE_MODEL:
-        correct = 0
-        predictions = classifier.predict(X_test)
-        for i, prediction in enumerate(predictions):
-            if prediction == y_test[i]:
-                correct += 1
-
-        print(f"Score on train test split:{correct / len(y_test)}")
-
-    final_detections = []
-    final_file_paths = []
-    final_scores = []
-    length_of_files = len(os.listdir(VALIDATION_PATH))
-
-    for file_no, file in enumerate(os.listdir(VALIDATION_PATH)):
-        start_time = timeit.default_timer()
-
-        # Sliding window for image
-        loaded_image = cv.imread('./files/validare/simpsons_validare/' + file)
-        loaded_image_copy = loaded_image.copy()
-        loaded_image = cv.cvtColor(loaded_image, cv.COLOR_BGR2GRAY)
-
-        sliding_window_scale = 1.2
-        # loaded_image = cv.blur(loaded_image, (3, 3), 1)
-        # loaded_image = cv.fastNlMeansDenoising(loaded_image, None, 3, 7, 21)
-
-        detections = []
-
-        for scale_factor, image_resize in enumerate(image_pyramid(loaded_image, scale=sliding_window_scale, minsize=(80, 80))):
-            for (x, y, window) in image_sliding_window(image_resize, sliding_window_predict_step_size, sliding_window_predict_size):
-                if window.shape[0] != sliding_window_predict_size[1] or window.shape[1] != sliding_window_predict_size[0]:
-                    continue
-
-                window = cv.resize(window, sliding_window_size)
-                _, predict_hog_window = hog(window, pixels_per_cell=(6, 6), cell_block=(2, 2), visualize=True)
-                predict_hog_window_np = np.array(predict_hog_window)
-                predict_hog_window_np_flatten = predict_hog_window_np.flatten()
-                # prediction = classifier.predict([predict_hog_window_np_flatten])
-                score = classifier.decision_function([predict_hog_window_np_flatten])
-
-                if score > 0:
-                    if scale_factor > 0:
-                        detections.append((x, y, x + window.shape[0] * int(sliding_window_scale ** scale_factor), y + window.shape[1] * int(sliding_window_scale ** scale_factor)))
-                    else:
-                        detections.append((x, y, x + window.shape[0], y + window.shape[1]))
-                    # final_scores.append(score[0])
-
-                # Display sliding window
-                if DISPLAY_SLIDING_WINDOW:
-                    clone = image_resize.copy()
-                    cv.rectangle(clone, (x, y), (x + sliding_window_predict_size[0], y + sliding_window_predict_size[1]), (0, 255, 0), 2)
-                    cv.imshow("Window", clone)
-                    cv.waitKey(1)
-
-        # print("Initial Detections:")
-        # print(detections)
-
-        # for detection in detections:
-        #     cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 255, 0), 1)
-
-        # for detection in detections:
-        #     print(detection)
-        #     cv.imshow("a", loaded_image[detection[2]:detection[3], detection[0]:detection[1]])
-        #     cv.waitKey(0)
-
-        # If there is only one detection save it as a final detection
-        if len(detections) == 1:
-            detection = detections[0]
-            final_detections.append(detection)
-            final_file_paths.append(file)
-            # cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 0, 255), 1)
-
-            # Score detection again and save it
-            detection_window = loaded_image[detection[1]:detection[3], detection[0]:detection[2]]
-            window_resized = cv.resize(detection_window, sliding_window_size)
-            _, predict_hog_window = hog(window_resized, pixels_per_cell=(6, 6), cell_block=(2, 2), visualize=True)
-            predict_hog_window_np = np.array(predict_hog_window)
-            predict_hog_window_np_flatten = predict_hog_window_np.flatten()
-            score = classifier.decision_function([predict_hog_window_np_flatten])
-            final_scores.append(score[0])
-
-        elif len(detections) > 1:
-            # Else, group rectangles and save the rectangle as a final detecion
-            grouped_rectangles_detections = cv.groupRectangles(detections, 1, 0.5)
-
-            # If there are no grouped rectangles, but there are detections, mark every detection as final
-            if len(grouped_rectangles_detections[0]) == 0:
-                for detection in detections:
-                    final_detections.append(detection)
-                    final_file_paths.append(file)
-
-                    # Score detection again and save it
-                    detection_window = loaded_image[detection[1]:detection[3], detection[0]:detection[2]]
-                    window_resized = cv.resize(detection_window, sliding_window_size)
-                    _, predict_hog_window = hog(window_resized, pixels_per_cell=(6, 6), cell_block=(2, 2), visualize=True)
-                    predict_hog_window_np = np.array(predict_hog_window)
-                    predict_hog_window_np_flatten = predict_hog_window_np.flatten()
-                    score = classifier.decision_function([predict_hog_window_np_flatten])
-                    final_scores.append(score[0])
-
-                    # cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 0, 255), 1)
-            else:
-                for detection in grouped_rectangles_detections[0]:
-                    final_detections.append(detection.tolist())
-                    final_file_paths.append(file)
-
-                    # Score detection again and save it
-                    detection_window = loaded_image[detection[1]:detection[3], detection[0]:detection[2]]
-                    window_resized = cv.resize(detection_window, sliding_window_size)
-                    _, predict_hog_window = hog(window_resized, pixels_per_cell=(6, 6), cell_block=(2, 2), visualize=True)
-                    predict_hog_window_np = np.array(predict_hog_window)
-                    predict_hog_window_np_flatten = predict_hog_window_np.flatten()
-                    score = classifier.decision_function([predict_hog_window_np_flatten])
-                    final_scores.append(score[0])
-
-                    # cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 0, 255), 1)
-        else:
-            print("No detection in file under")
-
-        end_time = timeit.default_timer()
-        print('Timpul de procesarea al imaginii de testare %d/%d este %f sec.' % (file_no + 1, length_of_files, end_time - start_time))
-
-    final_detections = np.asarray(final_detections)
-    final_file_paths = np.asarray(final_file_paths)
-    final_scores = np.asarray(final_scores)
-
-    eval_detections(final_detections, final_scores, final_file_paths, GROUND_TRUTH_PATH)
-
-    # cv.imshow("Final", loaded_image_copy)
-    # cv.waitKey(0)
-
     # positive_scores = []
     # negative_scores = []
-    #
-    # scores = classifier.decision_function(X_train)
+    # scores = classifier.decision_function(train_x)
     #
     # for score in scores:
     #     if score > 0:
@@ -414,6 +315,81 @@ def main():
     # plt.title('Distributia scorurilor clasificatorului pe exemplele de antrenare')
     # plt.legend(['Scoruri exemple pozitive', '0', 'Scoruri exemple negative'])
     # plt.show()
+
+    final_detections = []
+    final_file_paths = []
+    final_scores = []
+    length_of_files = len(os.listdir(VALIDATION_PATH))
+
+    for file_no, file in enumerate(os.listdir(VALIDATION_PATH)):
+        start_time = timeit.default_timer()
+
+        # Sliding window for image
+        loaded_image = cv.imread('./files/validare/simpsons_validare/' + file)
+        loaded_image_copy = loaded_image.copy()
+        loaded_image_grayscale = cv.cvtColor(loaded_image, cv.COLOR_BGR2GRAY)
+
+        sliding_window_scale = 1.5
+        detections = []
+        scores = []
+
+        for scale_factor, image_resize in enumerate(image_pyramid(loaded_image, scale=sliding_window_scale, minsize=(40, 40))):
+            for (x, y, window) in image_sliding_window(image_resize, sliding_window_predict_step_size, sliding_window_predict_size):
+                if window.shape[0] != sliding_window_predict_size[1] or window.shape[1] != sliding_window_predict_size[0]:
+                    continue
+
+                window = cv.resize(window, sliding_window_size)
+                patch_hsv = cv.cvtColor(window, cv.COLOR_BGR2HSV)
+                yellow_patch = cv.inRange(patch_hsv, low_yellow, high_yellow)
+
+                # Check if image contains some yellow, if yes, append to negative examples
+                if yellow_patch.mean() >= 70:
+                    window = loaded_image_grayscale[y:y + window.shape[0], x:x + window.shape[1]]
+                    predict_hog_window = hog(window, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=False)
+                    score = np.dot(predict_hog_window.flatten(), classifier.coef_.T) + classifier.intercept_[0]
+
+                    if score[0] > 0.5:
+                        scores.append(score[0])
+                        if scale_factor > 0:
+                            detections.append((x, y, x + window.shape[0] * int(sliding_window_scale ** scale_factor), y + window.shape[1] * int(sliding_window_scale ** scale_factor)))
+                        else:
+                            detections.append((x, y, x + window.shape[0], y + window.shape[1]))
+                        # final_scores.append(score[0])
+
+                # Display sliding window
+                if DISPLAY_SLIDING_WINDOW:
+                    clone = image_resize.copy()
+                    cv.rectangle(clone, (x, y), (x + sliding_window_predict_size[0], y + sliding_window_predict_size[1]), (0, 255, 0), 2)
+                    cv.imshow("Window", clone)
+                    cv.waitKey(1)
+
+        # for detection in detections:
+            # cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 255, 0), 1)
+
+        if len(detections) > 0:
+            image_detections, image_scores = non_maximal_suppression(np.array(detections), np.array(scores), loaded_image.shape)
+
+            for detection in image_detections:
+                cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 0, 255), 1)
+                final_detections.append(detection)
+                final_file_paths.append(file)
+
+            for score in image_scores:
+                final_scores.append(score)
+
+        end_time = timeit.default_timer()
+        print('Timpul de procesarea al imaginii de testare %d/%d este %f sec.' % (file_no + 1, length_of_files, end_time - start_time))
+
+        # cv.imshow("a", loaded_image_copy)
+        # cv.waitKey(0)
+
+    final_detections = np.asarray(final_detections)
+    final_file_paths = np.asarray(final_file_paths)
+    final_scores = np.asarray(final_scores)
+
+    print(f"Detections: {len(final_detections)}")
+
+    eval_detections(final_detections, final_scores, final_file_paths, GROUND_TRUTH_PATH)
 
 
 if __name__ == "__main__":

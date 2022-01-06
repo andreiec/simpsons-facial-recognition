@@ -2,7 +2,7 @@ import os
 import cv2 as cv
 import random
 
-GENERATE_FACES = True
+GENERATE_FACES = False
 GENERATE_NON_FACES = True
 
 # Paths
@@ -15,6 +15,10 @@ sliding_window_size = (36, 36)
 # Data gathering parameters
 image_resize_factor = 1
 random_window_max_tries = 5
+
+# Yellow filter
+low_yellow = (19, 90, 190)
+high_yellow = (90, 255, 255)
 
 # Training data arrays
 images_with_faces_train_data = []
@@ -76,34 +80,30 @@ for image_path in images:
             face = cv.resize(face, (sliding_window_size[0] * image_resize_factor, sliding_window_size[1] * image_resize_factor))
             images_with_faces_train_data.append(face)
 
-    # Foreach face append a random non face image to the images_without_faces_training_data to even the training data (Added the plus 1 to make up for margin errors)
+    # Try to get around 30 negative examples per image
     if GENERATE_NON_FACES:
-        for i in range(len(image_labels) + random.randint(0, 1)):
-            found_non_face = False
-            tries = 0
-
-            # Get random coords while find some that fit the criteria
-            while not found_non_face:
+        for i in range(35):
+            for j in range(4):
                 # Select random coords
-                rand_y, rand_x = random.randint(10, image.shape[0] - sliding_window_size[1]), random.randint(10, image.shape[1] - sliding_window_size[0])
-
-                # If number of tries is exceeded return
-                tries += 1
+                rand_y, rand_x = random.randint(0, image.shape[0] - int(sliding_window_size[1] * (1.5**j) + 1)), random.randint(0, image.shape[1] - int(sliding_window_size[0] * (1.5**j) + 1))
 
                 # Check if the square would intersect any face from label, if yes, break
                 intersects = False
                 for image_label in image_labels:
-                    if check_if_rectangles_overlap((rand_x, rand_y), (rand_x + sliding_window_size[0], rand_y + sliding_window_size[1]), (image_label[0], image_label[1]), (image_label[2], image_label[3])):
+                    if check_if_rectangles_overlap((rand_x, rand_y), (rand_x + int(sliding_window_size[0] * (1.5**j) + 1), rand_y + int(sliding_window_size[1] * (1.5**j) + 1)), (image_label[0], image_label[1]), (image_label[2], image_label[3])):
                         intersects = True
 
                 if not intersects:
-                    non_face = image[rand_y:rand_y + sliding_window_size[1], rand_x:rand_x + sliding_window_size[0]]
-                    non_face = cv.resize(non_face, (sliding_window_size[0] * image_resize_factor, sliding_window_size[1] * image_resize_factor))
-                    images_without_faces_train_data.append(non_face)
-                    found_non_face = True
+                    negative_example = image[rand_y:rand_y + int(sliding_window_size[1] * (1.5**j) + 1), rand_x:rand_x + int(sliding_window_size[0] * (1.5**j) + 1)]
+                    patch_hsv = cv.cvtColor(negative_example, cv.COLOR_BGR2HSV)
+                    yellow_patch = cv.inRange(patch_hsv, low_yellow, high_yellow)
 
-                if tries >= random_window_max_tries:
-                    found_non_face = True
+                    # Check if image contains some yellow, if yes, append to negative examples
+                    if yellow_patch.mean() >= 50:
+                        non_face = image[rand_y:rand_y + int(sliding_window_size[1] * (1.5**j) + 1), rand_x:rand_x + int(sliding_window_size[0] * (1.5**j) + 1)]
+                        non_face = cv.resize(non_face, (sliding_window_size[0] * image_resize_factor, sliding_window_size[1] * image_resize_factor))
+                        images_without_faces_train_data.append(non_face)
+
 
 if GENERATE_FACES:
     for i, image in enumerate(images_with_faces_train_data):
