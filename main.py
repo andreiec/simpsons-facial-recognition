@@ -1,15 +1,11 @@
 import os
-import time
 import cv2 as cv
 import numpy as np
-import random
 import pickle
 import timeit
 
-from skimage import data, exposure
 from skimage.feature import hog
 from sklearn import svm
-from sklearn.model_selection import train_test_split
 
 import matplotlib.pyplot as plt
 
@@ -30,14 +26,11 @@ VALIDATION_PATH = "./files/validare/simpsons_validare/"
 GROUND_TRUTH_PATH = "./files/validare/task1_gt.txt"
 
 # Sliding window parameters
-sliding_window_size = (36, 36)
-sliding_window_step_size = 2
+sliding_window_size = (8, 8)
+sliding_window_step_size = 1
 
-sliding_window_predict_size = (36, 36)
-sliding_window_predict_step_size = 2
-
-# Data gathering parameters
-image_resize_factor = 1
+train_window_size = (36, 36)
+hog_pixels_per_cell = (6, 6)
 
 # Save images paths and their labels
 images = []
@@ -61,13 +54,6 @@ def image_pyramid(img, scale=1.5, minsize=(128, 128)):
             break
 
         yield img
-
-
-# Function to yield a window of an image
-def image_sliding_window(img, step_size, window_size):
-    for y in range(0, img.shape[0], step_size):
-        for x in range(0, img.shape[1], step_size):
-            yield x, y, img[y:y + window_size[1], x:x + window_size[0]]
 
 
 # Show image with all bounding boxes for faces
@@ -247,6 +233,9 @@ def main():
                 face_hog_image = hog(image, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
                 images_with_faces_train_data.append(face_hog_image)
 
+                face_hog_image = hog(np.fliplr(image), pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
+                images_with_faces_train_data.append(face_hog_image)
+
             images_with_faces_train_data = np.array(images_with_faces_train_data)
             np.save(positive_descriptors_path, images_with_faces_train_data)
 
@@ -257,7 +246,10 @@ def main():
         else:
             for file in os.listdir(NEGATIVE_EXAMPLES_PATH):
                 image = cv.imread(NEGATIVE_EXAMPLES_PATH + file, cv.IMREAD_GRAYSCALE)
-                non_face_hog_image = hog(image, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
+                non_face_hog_image = hog(image, pixels_per_cell=hog_pixels_per_cell, cells_per_block=(2, 2), feature_vector=True)
+                images_without_faces_train_data.append(non_face_hog_image)
+
+                non_face_hog_image = hog(np.fliplr(image), pixels_per_cell=hog_pixels_per_cell, cells_per_block=(2, 2), feature_vector=True)
                 images_without_faces_train_data.append(non_face_hog_image)
 
             images_without_faces_train_data = np.array(images_without_faces_train_data)
@@ -272,7 +264,6 @@ def main():
         # Combine training data
         train_x = np.concatenate((np.squeeze(images_with_faces_train_data), np.squeeze(images_without_faces_train_data)), axis=0)
 
-    # Define classifier
     classifier = svm.LinearSVC(C=1)
 
     if TRAIN_MODEL:
@@ -297,25 +288,6 @@ def main():
         classifier = pickle.load(open(filename, 'rb'))
         print("SVM Loaded!")
 
-    # positive_scores = []
-    # negative_scores = []
-    # scores = classifier.decision_function(train_x)
-    #
-    # for score in scores:
-    #     if score > 0:
-    #         positive_scores.append(score)
-    #     else:
-    #         negative_scores.append(score)
-    #
-    # plt.plot(np.sort(positive_scores))
-    # plt.plot(np.zeros(len(negative_scores) + 20))
-    # plt.plot(np.sort(negative_scores))
-    # plt.xlabel('Nr example antrenare')
-    # plt.ylabel('Scor clasificator')
-    # plt.title('Distributia scorurilor clasificatorului pe exemplele de antrenare')
-    # plt.legend(['Scoruri exemple pozitive', '0', 'Scoruri exemple negative'])
-    # plt.show()
-
     final_detections = []
     final_file_paths = []
     final_scores = []
@@ -327,41 +299,53 @@ def main():
         # Sliding window for image
         loaded_image = cv.imread('./files/validare/simpsons_validare/' + file)
         loaded_image_copy = loaded_image.copy()
-        loaded_image_grayscale = cv.cvtColor(loaded_image, cv.COLOR_BGR2GRAY)
+        loaded_image_hsv = cv.cvtColor(loaded_image, cv.COLOR_BGR2HSV)
+        loaded_image_hsv_yellow = cv.inRange(loaded_image_hsv, low_yellow, high_yellow)
 
-        sliding_window_scale = 1.5
+        sliding_window_scale = 1.2
         detections = []
         scores = []
 
-        for scale_factor, image_resize in enumerate(image_pyramid(loaded_image, scale=sliding_window_scale, minsize=(40, 40))):
-            for (x, y, window) in image_sliding_window(image_resize, sliding_window_predict_step_size, sliding_window_predict_size):
-                if window.shape[0] != sliding_window_predict_size[1] or window.shape[1] != sliding_window_predict_size[0]:
-                    continue
+        scale = 0.18
+        scale_y = 0.15
 
-                window = cv.resize(window, sliding_window_size)
-                patch_hsv = cv.cvtColor(window, cv.COLOR_BGR2HSV)
-                yellow_patch = cv.inRange(patch_hsv, low_yellow, high_yellow)
+        # Sliding window
+        while scale <= 1 and scale_y <= 1:
+            image_resize = cv.resize(loaded_image, (0, 0), fx=scale, fy=scale_y)
+            image_resize_gray = cv.cvtColor(image_resize, cv.COLOR_BGR2GRAY)
+            image_resize_hog = hog(image_resize_gray, pixels_per_cell=hog_pixels_per_cell, cells_per_block=(2, 2), feature_vector=False)
 
-                # Check if image contains some yellow, if yes, append to negative examples
-                if yellow_patch.mean() >= 70:
-                    window = loaded_image_grayscale[y:y + window.shape[0], x:x + window.shape[1]]
-                    predict_hog_window = hog(window, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=False)
-                    score = np.dot(predict_hog_window.flatten(), classifier.coef_.T) + classifier.intercept_[0]
+            number_of_cols = image_resize.shape[1] // hog_pixels_per_cell[0] - 1
+            number_of_rows = image_resize.shape[0] // hog_pixels_per_cell[0] - 1
+            number_of_cell_in_template = train_window_size[0] // hog_pixels_per_cell[0] - 1
 
-                    if score[0] > 0.5:
-                        scores.append(score[0])
-                        if scale_factor > 0:
-                            detections.append((x, y, x + window.shape[0] * int(sliding_window_scale ** scale_factor), y + window.shape[1] * int(sliding_window_scale ** scale_factor)))
-                        else:
-                            detections.append((x, y, x + window.shape[0], y + window.shape[1]))
-                        # final_scores.append(score[0])
+            # Slide across hog cells
+            for y in range(0, number_of_rows - number_of_cell_in_template, sliding_window_step_size):
+                for x in range(0, number_of_cols - number_of_cell_in_template, sliding_window_step_size):
+                    x_min = int(x * hog_pixels_per_cell[1] * 1 // scale)
+                    y_min = int(y * hog_pixels_per_cell[0] // scale_y)
+                    x_max = int((x * hog_pixels_per_cell[1] + train_window_size[1]) * 1 // scale)
+                    y_max = int((y * hog_pixels_per_cell[0] + train_window_size[0]) * 1 // scale_y)
 
-                # Display sliding window
-                if DISPLAY_SLIDING_WINDOW:
-                    clone = image_resize.copy()
-                    cv.rectangle(clone, (x, y), (x + sliding_window_predict_size[0], y + sliding_window_predict_size[1]), (0, 255, 0), 2)
-                    cv.imshow("Window", clone)
-                    cv.waitKey(1)
+                    # Check if image contains some yellow
+                    if loaded_image_hsv_yellow[y_min:y_max, x_min:x_max].mean() >= 70:
+                        descriptor = image_resize_hog[y:y + number_of_cell_in_template, x:x + number_of_cell_in_template].flatten()
+                        score = np.dot(descriptor, classifier.coef_.T) + classifier.intercept_[0]
+
+                        # Append score
+                        if score[0] > 0:
+                            scores.append(score[0])
+                            detections.append((x_min, y_min, x_max, y_max))
+
+                    # Display sliding window
+                    if DISPLAY_SLIDING_WINDOW:
+                        clone = image_resize.copy()
+                        cv.rectangle(clone, (x, y), (x + sliding_window_size[1], y + sliding_window_size[0]), (0, 255, 0), 2)
+                        cv.imshow("Window", clone)
+                        cv.waitKey(1)
+
+            scale *= 1.04
+            scale_y *= 1.04
 
         # for detection in detections:
             # cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 255, 0), 1)

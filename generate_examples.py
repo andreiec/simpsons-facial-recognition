@@ -82,7 +82,7 @@ for image_path in images:
 
     # Try to get around 30 negative examples per image
     if GENERATE_NON_FACES:
-        for i in range(35):
+        for i in range(7):
             for j in range(4):
                 # Select random coords
                 rand_y, rand_x = random.randint(0, image.shape[0] - int(sliding_window_size[1] * (1.5**j) + 1)), random.randint(0, image.shape[1] - int(sliding_window_size[0] * (1.5**j) + 1))
