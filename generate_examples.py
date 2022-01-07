@@ -3,7 +3,8 @@ import cv2 as cv
 import random
 
 GENERATE_FACES = False
-GENERATE_NON_FACES = True
+GENERATE_NON_FACES = False
+GENERATE_CHARACTER_FACES = True
 
 # Paths
 TRAIN_IMAGES_PATH = ["./files/antrenare/bart/", "./files/antrenare/homer/", "./files/antrenare/lisa/", "./files/antrenare/marge/"]
@@ -23,6 +24,11 @@ high_yellow = (90, 255, 255)
 # Training data arrays
 images_with_faces_train_data = []
 images_without_faces_train_data = []
+
+bart = []
+homer = []
+lisa = []
+marge = []
 
 # Save images paths and their labels
 images = []
@@ -69,7 +75,6 @@ for image_path in images:
 
     # Load labels
     image_labels = labels[image_path.split("/")[-2] + "_" + image_path.split("/")[-1]]
-
     # Read image from path
     image = cv.imread(image_path)
 
@@ -104,6 +109,22 @@ for image_path in images:
                         non_face = cv.resize(non_face, (sliding_window_size[0] * image_resize_factor, sliding_window_size[1] * image_resize_factor))
                         images_without_faces_train_data.append(non_face)
 
+    if GENERATE_CHARACTER_FACES:
+        for image_label in image_labels:
+            if image_label[-1] == "unknown":
+                continue
+
+            face = get_image_from_label(image, image_label)
+            face = cv.resize(face, sliding_window_size)
+
+            if image_label[-1] == "bart":
+                bart.append(face)
+            elif image_label[-1] == "homer":
+                homer.append(face)
+            elif image_label[-1] == "lisa":
+                lisa.append(face)
+            elif image_label[-1] == "marge":
+                marge.append(face)
 
 if GENERATE_FACES:
     for i, image in enumerate(images_with_faces_train_data):
@@ -112,3 +133,16 @@ if GENERATE_FACES:
 if GENERATE_NON_FACES:
     for i, image in enumerate(images_without_faces_train_data):
         cv.imwrite("./negativeExamples/" + str(i) + ".jpg", image)
+
+if GENERATE_CHARACTER_FACES:
+    for i, image in enumerate(bart):
+        cv.imwrite("./separatedExamples/bart/" + str(i) + ".jpg", image)
+
+    for i, image in enumerate(homer):
+        cv.imwrite("./separatedExamples/homer/" + str(i) + ".jpg", image)
+
+    for i, image in enumerate(lisa):
+        cv.imwrite("./separatedExamples/lisa/" + str(i) + ".jpg", image)
+
+    for i, image in enumerate(marge):
+        cv.imwrite("./separatedExamples/marge/" + str(i) + ".jpg", image)

@@ -14,12 +14,8 @@ SAVE_MODEL = False
 LOAD_MODEL = True
 TRAIN_MODEL = False
 LOAD_IMAGES = False
-DISPLAY_SLIDING_WINDOW = False
 
 # Paths
-TRAIN_IMAGES_PATH = ["./files/antrenare/bart/", "./files/antrenare/homer/", "./files/antrenare/lisa/", "./files/antrenare/marge/"]
-TRAIN_IMAGES_LABELS = ["./files/antrenare/bart.txt", "./files/antrenare/homer.txt", "./files/antrenare/lisa.txt", "./files/antrenare/marge.txt"]
-
 POSITIVE_EXAMPLES_PATH = "./positiveExamples/"
 NEGATIVE_EXAMPLES_PATH = "./negativeExamples/"
 VALIDATION_PATH = "./files/validare/simpsons_validare/"
@@ -41,39 +37,9 @@ low_yellow = (20, 105, 105)
 high_yellow = (35, 255, 255)
 
 
-# Function to yield the complete pyramid of an image
-def image_pyramid(img, scale=1.5, minsize=(128, 128)):
-    yield img
-
-    while True:
-        w = int(img.shape[1] / scale)
-        h = int(img.shape[0] / scale)
-        img = cv.resize(img, (w, h), interpolation=cv.INTER_AREA)
-
-        if img.shape[0] < minsize[1] or img.shape[1] < minsize[0]:
-            break
-
-        yield img
-
-
-# Show image with all bounding boxes for faces
-def show_image_with_bounding_boxes(path, img_labels):
-    img = cv.imread(path)
-    for label in img_labels:
-        img = cv.rectangle(img, (label[0], label[1]), (label[2], label[3]), (0, 255, 0), 1)
-    cv.imshow(path, img)
-    cv.waitKey(0)
-    cv.destroyAllWindows()
-
-
 # Function to check if two rectangles overlap
 def check_if_rectangles_overlap(l1, r1, l2, r2):
     return l1[0] < r2[0] and r1[0] > l2[0] and l1[1] < r2[1] and r1[1] > l2[1]
-
-
-# Function to return the bounding image of face from label
-def get_image_from_label(img, label):
-    return img[label[1]:label[3], label[0]:label[2]]
 
 
 # Functii luate din codul de evaluare solutie
@@ -97,11 +63,14 @@ def compute_average_precision(rec, prec):
     # functie adaptata din 2010 Pascal VOC development kit
     m_rec = np.concatenate(([0], rec, [1]))
     m_pre = np.concatenate(([0], prec, [0]))
+
     for i in range(len(m_pre) - 1, -1, 1):
         m_pre[i] = max(m_pre[i], m_pre[i + 1])
+
     m_rec = np.array(m_rec)
     i = np.where(m_rec[1:] != m_rec[:-1])[0] + 1
     average_precision = np.sum((m_rec[i] - m_rec[i - 1]) * m_pre[i])
+
     return average_precision
 
 
@@ -111,9 +80,9 @@ def eval_detections(detections, scores, file_names, ground_truth_path):
     ground_truth_file_names = np.array(ground_truth_file[:, 0])
     ground_truth_detections = np.array(ground_truth_file[:, 1:], int)
 
-    num_gt_detections = len(ground_truth_detections)  # numar total de adevarat pozitive
+    num_gt_detections = len(ground_truth_detections)
     gt_exists_detection = np.zeros(num_gt_detections)
-    # sorteazam detectiile dupa scorul lor
+
     sorted_indices = np.argsort(scores)[::-1]
     file_names = file_names[sorted_indices]
     scores = scores[sorted_indices]
@@ -131,13 +100,13 @@ def eval_detections(detections, scores, file_names, ground_truth_path):
         bbox = detections[detection_idx]
         max_overlap = -1
         index_max_overlap_bbox = -1
+
         for gt_idx, gt_bbox in enumerate(gt_detections_on_image):
             overlap = intersection_over_union(bbox, gt_bbox)
             if overlap > max_overlap:
                 max_overlap = overlap
                 index_max_overlap_bbox = indices_detections_on_image[gt_idx]
 
-        # clasifica o detectie ca fiind adevarat pozitiva / fals pozitiva
         if max_overlap >= 0.3:
             if gt_exists_detection[index_max_overlap_bbox] == 0:
                 true_positive[detection_idx] = 1
@@ -154,6 +123,7 @@ def eval_detections(detections, scores, file_names, ground_truth_path):
     rec = cum_true_positive / num_gt_detections
     prec = cum_true_positive / (cum_true_positive + cum_false_positive)
     average_precision = compute_average_precision(rec, prec)
+
     plt.plot(rec, prec, '-')
     plt.xlabel('Recall')
     plt.ylabel('Precision')
@@ -163,76 +133,60 @@ def eval_detections(detections, scores, file_names, ground_truth_path):
 
 
 def non_maximal_suppression(image_detections, image_scores, image_size):
-    # xmin, ymin, xmax, ymax
+
     x_out_of_bounds = np.where(image_detections[:, 2] > image_size[1])[0]
     y_out_of_bounds = np.where(image_detections[:, 3] > image_size[0])[0]
-    print(x_out_of_bounds, y_out_of_bounds)
+
     image_detections[x_out_of_bounds, 2] = image_size[1]
     image_detections[y_out_of_bounds, 3] = image_size[0]
+
     sorted_indices = np.flipud(np.argsort(image_scores))
     sorted_image_detections = image_detections[sorted_indices]
     sorted_scores = image_scores[sorted_indices]
 
     is_maximal = np.ones(len(image_detections)).astype(bool)
     iou_threshold = 0.3
+
     for i in range(len(sorted_image_detections) - 1):
-        if is_maximal[i] == True:  # don't change to 'is True' because is a numpy True and is not a python True :)
+        if is_maximal[i] == True:
             for j in range(i + 1, len(sorted_image_detections)):
-                if is_maximal[j] == True:  # don't change to 'is True' because is a numpy True and is not a python True :)
+                if is_maximal[j] == True:
                     if intersection_over_union(sorted_image_detections[i],sorted_image_detections[j]) > iou_threshold:
                         is_maximal[j] = False
-                    else:  # verificam daca centrul detectiei este in mijlocul detectiei cu scor mai mare
+                    else:
                         c_x = (sorted_image_detections[j][0] + sorted_image_detections[j][2]) / 2
                         c_y = (sorted_image_detections[j][1] + sorted_image_detections[j][3]) / 2
                         if sorted_image_detections[i][0] <= c_x <= sorted_image_detections[i][2] and \
                                 sorted_image_detections[i][1] <= c_y <= sorted_image_detections[i][3]:
                             is_maximal[j] = False
+
     return sorted_image_detections[is_maximal], sorted_scores[is_maximal]
 
 
 # Main function
 def main():
+
     # Training data arrays
     images_with_faces_train_data = []
     images_without_faces_train_data = []
-
-    # Read images from folders
-    for folder in TRAIN_IMAGES_PATH:
-        for image in os.listdir(folder):
-            images.append(os.path.join(folder, image))
-
-    # Load labels
-    for label_file in TRAIN_IMAGES_LABELS:
-        with open(label_file) as f:
-            lines = f.readlines()
-
-            for line in lines:
-                data = line.split()
-
-                key = label_file.split("/")[-1].split(".")[0] + "_" + data[0]
-                x1, y1, x2, y2, name = int(data[1]), int(data[2]), int(data[3]), int(data[4]), data[5]
-
-                # Check if key is already in dict. If yes then append the coords to the list
-                if key in labels.keys():
-                    dict_value = labels.get(key)
-                    dict_value.append((x1, y1, x2, y2, name))
-                    labels[key] = dict_value
-                else:
-                    labels[key] = [(x1, y1, x2, y2, name)]
 
     if LOAD_IMAGES:
         print("Loading images..")
 
         # Load positive examples files
         positive_descriptors_path = "./descriptori/positive/positive.npy"
+
         if os.path.exists(positive_descriptors_path):
             images_with_faces_train_data = np.load(positive_descriptors_path)
         else:
             for file in os.listdir(POSITIVE_EXAMPLES_PATH):
+
+                # Load and save image
                 image = cv.imread(POSITIVE_EXAMPLES_PATH + file, cv.IMREAD_GRAYSCALE)
                 face_hog_image = hog(image, pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
                 images_with_faces_train_data.append(face_hog_image)
 
+                # Flip image to do small augmentation and append it
                 face_hog_image = hog(np.fliplr(image), pixels_per_cell=(6, 6), cells_per_block=(2, 2), feature_vector=True)
                 images_with_faces_train_data.append(face_hog_image)
 
@@ -245,10 +199,13 @@ def main():
             images_without_faces_train_data = np.load(negative_descriptors_path)
         else:
             for file in os.listdir(NEGATIVE_EXAMPLES_PATH):
+
+                # Load and save image
                 image = cv.imread(NEGATIVE_EXAMPLES_PATH + file, cv.IMREAD_GRAYSCALE)
                 non_face_hog_image = hog(image, pixels_per_cell=hog_pixels_per_cell, cells_per_block=(2, 2), feature_vector=True)
                 images_without_faces_train_data.append(non_face_hog_image)
 
+                # Flip image to do small augmentation and append it
                 non_face_hog_image = hog(np.fliplr(image), pixels_per_cell=hog_pixels_per_cell, cells_per_block=(2, 2), feature_vector=True)
                 images_without_faces_train_data.append(non_face_hog_image)
 
@@ -264,27 +221,25 @@ def main():
         # Combine training data
         train_x = np.concatenate((np.squeeze(images_with_faces_train_data), np.squeeze(images_without_faces_train_data)), axis=0)
 
+    # Define Linear SVC
     classifier = svm.LinearSVC(C=1)
 
     if TRAIN_MODEL:
         print("Training SVM..")
-
-        # Train test split
         classifier.fit(train_x, train_y)
-
         print("SVM Trained!")
 
     # Save SVM model
     if SAVE_MODEL:
         print("Saving SVM..")
-        filename = 'finalized_model.sav'
+        filename = 'finalized_model_task1.sav'
         pickle.dump(classifier, open(filename, 'wb'))
         print("SVM Saved!")
 
     # Load SVM model
     if LOAD_MODEL:
         print("Loading SVM..")
-        filename = 'finalized_model.sav'
+        filename = 'finalized_model_task1.sav'
         classifier = pickle.load(open(filename, 'rb'))
         print("SVM Loaded!")
 
@@ -295,23 +250,21 @@ def main():
 
     for file_no, file in enumerate(os.listdir(VALIDATION_PATH)):
         start_time = timeit.default_timer()
-
+        print(file)
         # Sliding window for image
         loaded_image = cv.imread('./files/validare/simpsons_validare/' + file)
-        loaded_image_copy = loaded_image.copy()
         loaded_image_hsv = cv.cvtColor(loaded_image, cv.COLOR_BGR2HSV)
         loaded_image_hsv_yellow = cv.inRange(loaded_image_hsv, low_yellow, high_yellow)
 
-        sliding_window_scale = 1.2
         detections = []
         scores = []
 
-        scale = 0.18
-        scale_y = 0.15
+        scale_x = 0.15
+        scale_y = 0.12
 
         # Sliding window
-        while scale <= 1 and scale_y <= 1:
-            image_resize = cv.resize(loaded_image, (0, 0), fx=scale, fy=scale_y)
+        while scale_x <= 1.75 and scale_y <= 1.75:
+            image_resize = cv.resize(loaded_image, (0, 0), fx=scale_x, fy=scale_y)
             image_resize_gray = cv.cvtColor(image_resize, cv.COLOR_BGR2GRAY)
             image_resize_hog = hog(image_resize_gray, pixels_per_cell=hog_pixels_per_cell, cells_per_block=(2, 2), feature_vector=False)
 
@@ -322,56 +275,50 @@ def main():
             # Slide across hog cells
             for y in range(0, number_of_rows - number_of_cell_in_template, sliding_window_step_size):
                 for x in range(0, number_of_cols - number_of_cell_in_template, sliding_window_step_size):
-                    x_min = int(x * hog_pixels_per_cell[1] * 1 // scale)
+                    x_min = int(x * hog_pixels_per_cell[1] * 1 // scale_x)
                     y_min = int(y * hog_pixels_per_cell[0] // scale_y)
-                    x_max = int((x * hog_pixels_per_cell[1] + train_window_size[1]) * 1 // scale)
+                    x_max = int((x * hog_pixels_per_cell[1] + train_window_size[1]) * 1 // scale_x)
                     y_max = int((y * hog_pixels_per_cell[0] + train_window_size[0]) * 1 // scale_y)
 
                     # Check if image contains some yellow
                     if loaded_image_hsv_yellow[y_min:y_max, x_min:x_max].mean() >= 70:
-                        descriptor = image_resize_hog[y:y + number_of_cell_in_template, x:x + number_of_cell_in_template].flatten()
-                        score = np.dot(descriptor, classifier.coef_.T) + classifier.intercept_[0]
+                        score = np.dot(image_resize_hog[y:y + number_of_cell_in_template, x:x + number_of_cell_in_template].flatten(), classifier.coef_.T) + classifier.intercept_[0]
 
                         # Append score
                         if score[0] > 0:
                             scores.append(score[0])
                             detections.append((x_min, y_min, x_max, y_max))
 
-                    # Display sliding window
-                    if DISPLAY_SLIDING_WINDOW:
-                        clone = image_resize.copy()
-                        cv.rectangle(clone, (x, y), (x + sliding_window_size[1], y + sliding_window_size[0]), (0, 255, 0), 2)
-                        cv.imshow("Window", clone)
-                        cv.waitKey(1)
+            scale_x *= 1.02
+            scale_y *= 1.02
 
-            scale *= 1.04
-            scale_y *= 1.04
-
-        # for detection in detections:
-            # cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 255, 0), 1)
-
+        # If there is a detection save it, if there are multiple detections run non_maximal_suppression to get the greatest square
         if len(detections) > 0:
             image_detections, image_scores = non_maximal_suppression(np.array(detections), np.array(scores), loaded_image.shape)
 
+            # Save final detections and file paths
             for detection in image_detections:
-                cv.rectangle(loaded_image_copy, (detection[0], detection[1]), (detection[2], detection[3]), (0, 0, 255), 1)
                 final_detections.append(detection)
                 final_file_paths.append(file)
+                # cv.rectangle(loaded_image, (detection[0], detection[1]), (detection[2], detection[3]), (0, 255, 0), 1)
 
+            # Save scores
             for score in image_scores:
                 final_scores.append(score)
 
         end_time = timeit.default_timer()
-        print('Timpul de procesarea al imaginii de testare %d/%d este %f sec.' % (file_no + 1, length_of_files, end_time - start_time))
 
-        # cv.imshow("a", loaded_image_copy)
-        # cv.waitKey(0)
+        if len(detections) > 0:
+            print(f'Time to process test image {file_no + 1:3}/{length_of_files},    with detecion, is {end_time - start_time:f} sec.')
+        else:
+            print(f'Time to process test image {file_no + 1:3}/{length_of_files}, without detecion, is {end_time - start_time:f} sec.')
 
+    # Convert to numpy array final lists
     final_detections = np.asarray(final_detections)
     final_file_paths = np.asarray(final_file_paths)
     final_scores = np.asarray(final_scores)
 
-    print(f"Detections: {len(final_detections)}")
+    print(f"Total detections: {len(final_detections)}")
 
     eval_detections(final_detections, final_scores, final_file_paths, GROUND_TRUTH_PATH)
 

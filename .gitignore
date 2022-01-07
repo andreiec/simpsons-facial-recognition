@@ -4,10 +4,17 @@ __pycache__/
 *$py.class
 .idea/
 files/
-finalized_model.sav
+finalized_model_task1.sav
+finalized_model_task2.sav
 finalized_model_backup.sav
+precizie_medie_all_faces.png
+precizie_medie_Bart.png
+precizie_medie_Homer.png
+precizie_medie_Lisa.png
+precizie_medie_Marge.png
 positiveExamples/
 negativeExamples/
+separatedExamples/
 descriptori/
 # C extensions
 *.so
