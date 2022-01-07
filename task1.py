@@ -7,13 +7,13 @@ import timeit
 from skimage.feature import hog
 from sklearn import svm
 
-import matplotlib.pyplot as plt
 
 # Constants
 SAVE_MODEL = False
 LOAD_MODEL = True
 TRAIN_MODEL = False
 LOAD_IMAGES = False
+SAVE_FILES = True
 
 # Paths
 POSITIVE_EXAMPLES_PATH = "./positiveExamples/"
@@ -56,80 +56,6 @@ def intersection_over_union(bbox_a, bbox_b):
     iou = inter_area / float(box_a_area + box_b_area - inter_area)
 
     return iou
-
-
-# Functii luate din codul de evaluare solutie
-def compute_average_precision(rec, prec):
-    # functie adaptata din 2010 Pascal VOC development kit
-    m_rec = np.concatenate(([0], rec, [1]))
-    m_pre = np.concatenate(([0], prec, [0]))
-
-    for i in range(len(m_pre) - 1, -1, 1):
-        m_pre[i] = max(m_pre[i], m_pre[i + 1])
-
-    m_rec = np.array(m_rec)
-    i = np.where(m_rec[1:] != m_rec[:-1])[0] + 1
-    average_precision = np.sum((m_rec[i] - m_rec[i - 1]) * m_pre[i])
-
-    return average_precision
-
-
-# Functii luate din codul de evaluare solutie
-def eval_detections(detections, scores, file_names, ground_truth_path):
-    ground_truth_file = np.loadtxt(ground_truth_path, dtype='str')
-    ground_truth_file_names = np.array(ground_truth_file[:, 0])
-    ground_truth_detections = np.array(ground_truth_file[:, 1:], int)
-
-    num_gt_detections = len(ground_truth_detections)
-    gt_exists_detection = np.zeros(num_gt_detections)
-
-    sorted_indices = np.argsort(scores)[::-1]
-    file_names = file_names[sorted_indices]
-    scores = scores[sorted_indices]
-    detections = detections[sorted_indices]
-
-    num_detections = len(detections)
-    true_positive = np.zeros(num_detections)
-    false_positive = np.zeros(num_detections)
-    duplicated_detections = np.zeros(num_detections)
-
-    for detection_idx in range(num_detections):
-        indices_detections_on_image = np.where(ground_truth_file_names == file_names[detection_idx])[0]
-
-        gt_detections_on_image = ground_truth_detections[indices_detections_on_image]
-        bbox = detections[detection_idx]
-        max_overlap = -1
-        index_max_overlap_bbox = -1
-
-        for gt_idx, gt_bbox in enumerate(gt_detections_on_image):
-            overlap = intersection_over_union(bbox, gt_bbox)
-            if overlap > max_overlap:
-                max_overlap = overlap
-                index_max_overlap_bbox = indices_detections_on_image[gt_idx]
-
-        if max_overlap >= 0.3:
-            if gt_exists_detection[index_max_overlap_bbox] == 0:
-                true_positive[detection_idx] = 1
-                gt_exists_detection[index_max_overlap_bbox] = 1
-            else:
-                false_positive[detection_idx] = 1
-                duplicated_detections[detection_idx] = 1
-        else:
-            false_positive[detection_idx] = 1
-
-    cum_false_positive = np.cumsum(false_positive)
-    cum_true_positive = np.cumsum(true_positive)
-
-    rec = cum_true_positive / num_gt_detections
-    prec = cum_true_positive / (cum_true_positive + cum_false_positive)
-    average_precision = compute_average_precision(rec, prec)
-
-    plt.plot(rec, prec, '-')
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('All faces: average precision %.3f' % average_precision)
-    plt.savefig('precizie_medie_all_faces.png')
-    plt.show()
 
 
 def non_maximal_suppression(image_detections, image_scores, image_size):
@@ -250,7 +176,7 @@ def main():
 
     for file_no, file in enumerate(os.listdir(VALIDATION_PATH)):
         start_time = timeit.default_timer()
-        print(file)
+
         # Sliding window for image
         loaded_image = cv.imread('./files/validare/simpsons_validare/' + file)
         loaded_image_hsv = cv.cvtColor(loaded_image, cv.COLOR_BGR2HSV)
@@ -320,7 +246,13 @@ def main():
 
     print(f"Total detections: {len(final_detections)}")
 
-    eval_detections(final_detections, final_scores, final_file_paths, GROUND_TRUTH_PATH)
+    # Evaluate detection
+    # eval_detections(final_detections, final_scores, final_file_paths, GROUND_TRUTH_PATH)
+
+    if SAVE_FILES:
+        np.save("./Constantinescu_Andrei-Eduard_344/task1/detections_all_faces.npy", final_detections)
+        np.save("./Constantinescu_Andrei-Eduard_344/task1/file_names_all_faces.npy", final_file_paths)
+        np.save("./Constantinescu_Andrei-Eduard_344/task1/scores_all_faces.npy", final_scores)
 
 
 if __name__ == "__main__":

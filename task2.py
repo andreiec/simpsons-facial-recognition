@@ -6,10 +6,7 @@ import timeit
 
 from skimage.feature import hog
 from sklearn import svm
-from sklearn.model_selection import train_test_split
-from sklearn.neural_network import MLPClassifier
 
-import matplotlib.pyplot as plt
 
 # Constants
 LOAD_IMAGES = False
@@ -17,6 +14,7 @@ LOAD_FACE_DETECTOR_MODEL = True
 TRAIN_MODEL = False
 SAVE_MODEL = False
 LOAD_MODEL = True
+SAVE_FILES = True
 
 # Paths
 TRAIN_IMAGES_PATH = ["./files/antrenare/bart/", "./files/antrenare/homer/", "./files/antrenare/lisa/", "./files/antrenare/marge/"]
@@ -44,80 +42,6 @@ labels = {}
 # Yellow filter
 low_yellow = (20, 105, 105)
 high_yellow = (35, 255, 255)
-
-
-# Functii luate din codul de evaluare solutie
-def compute_average_precision(rec, prec):
-    # functie adaptata din 2010 Pascal VOC development kit
-    m_rec = np.concatenate(([0], rec, [1]))
-    m_pre = np.concatenate(([0], prec, [0]))
-
-    for i in range(len(m_pre) - 1, -1, 1):
-        m_pre[i] = max(m_pre[i], m_pre[i + 1])
-
-    m_rec = np.array(m_rec)
-    i = np.where(m_rec[1:] != m_rec[:-1])[0] + 1
-    average_precision = np.sum((m_rec[i] - m_rec[i - 1]) * m_pre[i])
-
-    return average_precision
-
-
-# Functii luate din codul de evaluare solutie
-def eval_detections(detections, scores, file_names, ground_truth_path, character):
-    ground_truth_file = np.loadtxt(ground_truth_path, dtype='str')
-    ground_truth_file_names = np.array(ground_truth_file[:, 0])
-    ground_truth_detections = np.array(ground_truth_file[:, 1:], int)
-
-    num_gt_detections = len(ground_truth_detections)
-    gt_exists_detection = np.zeros(num_gt_detections)
-
-    sorted_indices = np.argsort(scores)[::-1]
-    file_names = file_names[sorted_indices]
-    scores = scores[sorted_indices]
-    detections = detections[sorted_indices]
-
-    num_detections = len(detections)
-    true_positive = np.zeros(num_detections)
-    false_positive = np.zeros(num_detections)
-    duplicated_detections = np.zeros(num_detections)
-
-    for detection_idx in range(num_detections):
-        indices_detections_on_image = np.where(ground_truth_file_names == file_names[detection_idx])[0]
-
-        gt_detections_on_image = ground_truth_detections[indices_detections_on_image]
-        bbox = detections[detection_idx]
-        max_overlap = -1
-        index_max_overlap_bbox = -1
-
-        for gt_idx, gt_bbox in enumerate(gt_detections_on_image):
-            overlap = intersection_over_union(bbox, gt_bbox)
-            if overlap > max_overlap:
-                max_overlap = overlap
-                index_max_overlap_bbox = indices_detections_on_image[gt_idx]
-
-        if max_overlap >= 0.3:
-            if gt_exists_detection[index_max_overlap_bbox] == 0:
-                true_positive[detection_idx] = 1
-                gt_exists_detection[index_max_overlap_bbox] = 1
-            else:
-                false_positive[detection_idx] = 1
-                duplicated_detections[detection_idx] = 1
-        else:
-            false_positive[detection_idx] = 1
-
-    cum_false_positive = np.cumsum(false_positive)
-    cum_true_positive = np.cumsum(true_positive)
-
-    rec = cum_true_positive / num_gt_detections
-    prec = cum_true_positive / (cum_true_positive + cum_false_positive)
-    average_precision = compute_average_precision(rec, prec)
-
-    plt.plot(rec, prec, '-')
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title(character + ' faces: average precision %.3f' % average_precision)
-    plt.savefig('precizie_medie_' + character + '.png')
-    plt.show()
 
 
 # Functii luate din codul de evaluare solutie
@@ -265,25 +189,26 @@ def main():
         # Combine training data
         train_x = np.concatenate((train_images_bart.flatten().reshape(len(bart_y), 1296), train_images_homer.flatten().reshape(len(homer_y), 1296), train_images_lisa.flatten().reshape(len(lisa_y), 1296), train_images_marge.flatten().reshape(len(marge_y), 1296)), axis=0)
 
-    classifier = MLPClassifier(random_state=1, max_iter=300)
+    # classifier = MLPClassifier(random_state=1, max_iter=300)
+    classifier = svm.SVC(C=10)
 
     # Define model for face classification and train test split
     if TRAIN_MODEL:
-        print("Training MLP..")
+        print("Training SVC..")
         classifier.fit(train_x, train_y)
-        print("MLP Trained!")
+        print("SVC Trained!")
 
     if SAVE_MODEL:
-        print("Saving MLP..")
+        print("Saving SVC..")
         filename = 'finalized_model_task2.sav'
         pickle.dump(classifier, open(filename, 'wb'))
         print("MLP Saved!")
 
     if LOAD_MODEL:
-        print("Loading MLP..")
+        print("Loading SVC..")
         filename = 'finalized_model_task2.sav'
         classifier = pickle.load(open(filename, 'rb'))
-        print("MLP Loaded!")
+        print("SVC Loaded!")
 
     # Load SVM from task 1
     face_detector_SVC = svm.LinearSVC(C=1)
@@ -401,6 +326,7 @@ def main():
     marge_paths = []
     marge_scores = []
 
+    # Split classifications
     for i, classification in enumerate(final_classifications):
         if classification == 0:
             bart_detections.append(final_detections[i])
@@ -419,6 +345,7 @@ def main():
             marge_paths.append(final_file_paths[i])
             marge_scores.append(final_scores[i])
 
+    # Convert to numpy arrays
     bart_detections = np.array(bart_detections)
     bart_paths = np.array(bart_paths)
     bart_scores = np.array(bart_scores)
@@ -435,10 +362,28 @@ def main():
     marge_paths = np.array(marge_paths)
     marge_scores = np.array(marge_scores)
 
-    eval_detections(bart_detections, bart_scores, bart_paths, GROUND_TRUTH_PATHS[0], 'Bart')
-    eval_detections(homer_detections, homer_scores, homer_paths, GROUND_TRUTH_PATHS[1], 'Homer')
-    eval_detections(lisa_detections, lisa_scores, lisa_paths, GROUND_TRUTH_PATHS[2], 'Lisa')
-    eval_detections(marge_detections, marge_scores, marge_paths, GROUND_TRUTH_PATHS[3], 'Marge')
+    # Evaluate detections
+    # eval_detections(bart_detections, bart_scores, bart_paths, GROUND_TRUTH_PATHS[0], 'Bart')
+    # eval_detections(homer_detections, homer_scores, homer_paths, GROUND_TRUTH_PATHS[1], 'Homer')
+    # eval_detections(lisa_detections, lisa_scores, lisa_paths, GROUND_TRUTH_PATHS[2], 'Lisa')
+    # eval_detections(marge_detections, marge_scores, marge_paths, GROUND_TRUTH_PATHS[3], 'Marge')
+
+    if SAVE_FILES:
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/detections_bart.npy", bart_detections)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/file_names_bart.npy", bart_paths)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/scores_bart.npy", bart_scores)
+
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/detections_homer.npy", homer_detections)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/file_names_homer.npy", homer_paths)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/scores_homer.npy", homer_scores)
+
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/detections_lisa.npy", lisa_detections)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/file_names_lisa.npy", lisa_paths)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/scores_lisa.npy", lisa_scores)
+
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/detections_marge.npy", marge_detections)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/file_names_marge.npy", marge_paths)
+        np.save("./Constantinescu_Andrei-Eduard_344/task2/scores_marge.npy", marge_scores)
 
 
 if __name__ == "__main__":
